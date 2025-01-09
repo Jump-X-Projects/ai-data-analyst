@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from typing import Dict, Any, List
 import pandas as pd
 import numpy as np
+import time
 
 def validate_visualization_data(df: pd.DataFrame, x_axis: str, y_axis: str) -> tuple[bool, str]:
     """Validate data for visualization"""
@@ -43,7 +44,7 @@ class VizComponent:
             return f"{value/1e3:.1f}K"
         return f"{value:,.0f}"
 
-    def create_bar_chart(self, x_axis: str, y_axis: str) -> go.Figure:
+    def create_bar_chart(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
         """Create an interactive bar chart"""
         fig = px.bar(
             self.df,
@@ -66,7 +67,46 @@ class VizComponent:
         
         return fig
 
-    def create_pie_chart(self, x_axis: str, y_axis: str) -> go.Figure:
+    def create_line_chart(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
+        """Create an interactive line chart"""
+        fig = px.line(
+            self.df,
+            x=x_axis,
+            y=y_axis,
+            title=f"Trend of {y_axis} over {x_axis}",
+            markers=True
+        )
+        
+        fig.update_layout(
+            xaxis_title=x_axis,
+            yaxis_title=y_axis,
+            hovermode='x unified',
+            height=500,
+            template='plotly_dark'
+        )
+        
+        return fig
+
+    def create_scatter_chart(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
+        """Create an interactive scatter plot"""
+        fig = px.scatter(
+            self.df,
+            x=x_axis,
+            y=y_axis,
+            title=f"{y_axis} vs {x_axis}",
+            trendline="ols" if len(self.df) > 1 else None
+        )
+        
+        fig.update_layout(
+            xaxis_title=x_axis,
+            yaxis_title=y_axis,
+            height=500,
+            template='plotly_dark'
+        )
+        
+        return fig
+
+    def create_pie_chart(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
         """Create an interactive pie chart"""
         pie_data = self.df.groupby(x_axis)[y_axis].sum().reset_index()
         
@@ -74,7 +114,7 @@ class VizComponent:
             pie_data,
             values=y_axis,
             names=x_axis,
-            title=f"{y_axis} Distribution by {x_axis}",
+            title=f"Distribution of {y_axis} by {x_axis}",
             color_discrete_sequence=self.color_schemes['default']
         )
         
@@ -87,86 +127,127 @@ class VizComponent:
         
         return fig
 
+    def create_area_chart(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
+        """Create an interactive area chart"""
+        fig = px.area(
+            self.df,
+            x=x_axis,
+            y=y_axis,
+            title=f"Area plot of {y_axis} over {x_axis}"
+        )
+        
+        fig.update_layout(
+            xaxis_title=x_axis,
+            yaxis_title=y_axis,
+            hovermode='x unified',
+            height=500,
+            template='plotly_dark'
+        )
+        
+        return fig
+
+    def create_box_plot(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
+        """Create an interactive box plot"""
+        fig = px.box(
+            self.df,
+            x=x_axis,
+            y=y_axis,
+            title=f"Distribution of {y_axis} by {x_axis}"
+        )
+        
+        fig.update_layout(
+            xaxis_title=x_axis,
+            yaxis_title=y_axis,
+            height=500,
+            template='plotly_dark'
+        )
+        
+        return fig
+
     def render(self):
         """Render the visualization component"""
         try:
-            # Generate a unique identifier for this instance
-            viz_id = str(hash(frozenset(self.df.columns)))[:8]
+            # Create a container for the visualization
+            viz_container = st.container()
             
-            # Initialize session state keys for this visualization
-            chart_type_key = f'chart_type_{viz_id}'
-            x_axis_key = f'x_axis_{viz_id}'
-            y_axis_key = f'y_axis_{viz_id}'
-            
-            # Initialize session state if not exists
-            if chart_type_key not in st.session_state:
-                st.session_state[chart_type_key] = self.viz_info.get('recommended_viz', 'bar')
-            if x_axis_key not in st.session_state:
-                st.session_state[x_axis_key] = self.viz_info.get('x_axis')
-            if y_axis_key not in st.session_state:
-                st.session_state[y_axis_key] = self.viz_info.get('y_axis')
-            
-            # Create columns for controls
-            col1, col2, col3 = st.columns(3)
-            
-            # Chart type selector
-            with col1:
-                chart_type = st.selectbox(
-                    "Chart Type",
-                    options=self.viz_info.get('possible_viz', ['bar']),
-                    index=self.viz_info.get('possible_viz', ['bar']).index(
-                        st.session_state[chart_type_key]
-                    ),
-                    key=f'viz_chart_type_{viz_id}'
-                )
-                st.session_state[chart_type_key] = chart_type
+            with viz_container:
+                # Create columns for controls
+                col1, col2, col3 = st.columns(3)
+                
+                # Chart type selector
+                with col1:
+                    chart_type = st.selectbox(
+                        "Chart Type",
+                        options=['bar', 'line', 'scatter', 'pie', 'area', 'box'],
+                        index=['bar', 'line', 'scatter', 'pie', 'area', 'box'].index(
+                            self.viz_info.get('recommended_viz', 'bar')
+                        )
+                    )
 
-            # X-axis selector
-            with col2:
-                x_axis = st.selectbox(
-                    "X Axis",
-                    options=self.viz_info.get('columns', []),
-                    index=self.viz_info.get('columns', []).index(
-                        st.session_state[x_axis_key]
-                    ) if st.session_state[x_axis_key] in self.viz_info.get('columns', []) else 0,
-                    key=f'viz_x_axis_{viz_id}'
-                )
-                st.session_state[x_axis_key] = x_axis
+                # X-axis selector
+                with col2:
+                    x_axis = st.selectbox(
+                        "X Axis",
+                        options=self.viz_info.get('columns', []),
+                        index=self.viz_info.get('columns', []).index(
+                            self.viz_info.get('x_axis', self.viz_info.get('columns', [])[0])
+                        )
+                    )
 
-            # Y-axis selector
-            with col3:
-                y_axis = st.selectbox(
-                    "Y Axis",
-                    options=self.viz_info.get('numerical_columns', []),
-                    index=self.viz_info.get('numerical_columns', []).index(
-                        st.session_state[y_axis_key]
-                    ) if st.session_state[y_axis_key] in self.viz_info.get('numerical_columns', []) else 0,
-                    key=f'viz_y_axis_{viz_id}'
-                )
-                st.session_state[y_axis_key] = y_axis
+                # Y-axis selector
+                with col3:
+                    y_axis = st.selectbox(
+                        "Y Axis",
+                        options=self.viz_info.get('numerical_columns', []),
+                        index=self.viz_info.get('numerical_columns', []).index(
+                            self.viz_info.get('y_axis', self.viz_info.get('numerical_columns', [])[0])
+                        )
+                    )
 
-            # Validate the data
-            is_valid, error_message = validate_visualization_data(self.df, x_axis, y_axis)
-            if not is_valid:
-                st.error(error_message)
-                return
+                # Validate the data
+                is_valid, error_message = validate_visualization_data(self.df, x_axis, y_axis)
+                if not is_valid:
+                    st.error(error_message)
+                    return
 
-            # Create and display the appropriate chart
-            chart_key = f'chart_{viz_id}'
-            if chart_type == 'bar':
-                fig = self.create_bar_chart(x_axis, y_axis)
-            elif chart_type == 'pie':
-                fig = self.create_pie_chart(x_axis, y_axis)
-            else:
-                st.error(f"Unsupported chart type: {chart_type}")
-                return
+                # Generate a unique key for this chart
+                chart_key = f"viz_{hash(f'{chart_type}_{x_axis}_{y_axis}_{time.time()}')}"
 
-            # Display the chart
-            st.plotly_chart(fig, use_container_width=True, key=chart_key)
-            
-            # Display visualization reason if available
-            if 'reason' in self.viz_info:
-                st.info(f"📊 {self.viz_info['reason']}", key=f'viz_info_{viz_id}')
+                # Create and display the appropriate chart
+                chart_creators = {
+                    'bar': self.create_bar_chart,
+                    'line': self.create_line_chart,
+                    'scatter': self.create_scatter_chart,
+                    'pie': self.create_pie_chart,
+                    'area': self.create_area_chart,
+                    'box': self.create_box_plot
+                }
+
+                if chart_type in chart_creators:
+                    fig = chart_creators[chart_type](x_axis, y_axis, chart_key)
+                    st.plotly_chart(fig, use_container_width=True, key=chart_key)
+                else:
+                    st.error(f"Unsupported chart type: {chart_type}")
+                    return
+                
+                # Display visualization reason if available
+                if 'reason' in self.viz_info:
+                    st.info(f"📊 {self.viz_info['reason']}")
+
+                # Display chart type descriptions
+                with st.expander("📈 Chart Type Descriptions"):
+                    st.markdown("""
+                    ### Available Chart Types:
+                    
+                    - **Bar Chart**: Shows comparisons between categories. Best for comparing quantities across different groups.
+                    - **Line Chart**: Shows trends over time or sequences. Ideal for showing how data changes over a continuous interval.
+                    - **Scatter Plot**: Shows relationships between two variables. Great for identifying correlations and patterns.
+                    - **Pie Chart**: Shows parts of a whole. Best when you want to show proportions and percentages.
+                    - **Area Chart**: Similar to line chart but with filled areas. Good for showing cumulative totals over time.
+                    - **Box Plot**: Shows statistical distribution of data. Excellent for showing data spread, quartiles, and outliers.
+                    
+                    Choose the chart type that best fits your data and analysis goals!
+                    """)
 
         except Exception as e:
             st.error(f"Error in visualization component: {str(e)}")

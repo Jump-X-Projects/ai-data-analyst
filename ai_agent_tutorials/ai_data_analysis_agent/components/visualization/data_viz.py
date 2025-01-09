@@ -36,7 +36,7 @@ def analyze_data_for_visualization(df: pd.DataFrame) -> Dict[str, Any]:
     if datetime_cols and numerical_cols:
         result.update({
             'recommended_viz': 'line',
-            'possible_viz': ['line', 'bar'],
+            'possible_viz': ['line', 'area', 'bar', 'scatter'],
             'x_axis': datetime_cols[0],
             'y_axis': numerical_cols[0],
             'reason': 'Time series data detected - showing trends over time'
@@ -46,15 +46,15 @@ def analyze_data_for_visualization(df: pd.DataFrame) -> Dict[str, Any]:
         if unique_cats <= 10:
             result.update({
                 'recommended_viz': 'bar',
-                'possible_viz': ['bar', 'pie'],
+                'possible_viz': ['bar', 'pie', 'box'],
                 'x_axis': categorical_cols[0],
                 'y_axis': numerical_cols[0],
                 'reason': 'Categorical data with numerical values - comparing across categories'
             })
         else:
             result.update({
-                'recommended_viz': 'bar',
-                'possible_viz': ['bar'],
+                'recommended_viz': 'box',
+                'possible_viz': ['box', 'bar'],
                 'x_axis': categorical_cols[0],
                 'y_axis': numerical_cols[0],
                 'reason': 'Multiple categories with numerical values - showing distribution'
@@ -62,17 +62,22 @@ def analyze_data_for_visualization(df: pd.DataFrame) -> Dict[str, Any]:
     elif len(numerical_cols) >= 2:
         result.update({
             'recommended_viz': 'scatter',
-            'possible_viz': ['scatter', 'line'],
+            'possible_viz': ['scatter', 'line', 'area'],
             'x_axis': numerical_cols[0],
             'y_axis': numerical_cols[1],
             'reason': 'Multiple numerical columns - exploring relationships'
         })
     else:
+        # Default case
         result.update({
             'recommended_viz': 'bar',
-            'possible_viz': ['bar', 'line'],
+            'possible_viz': ['bar', 'line', 'area', 'scatter', 'pie', 'box'],
             'reason': 'General data exploration'
         })
+
+    # Always ensure all chart types are available
+    all_chart_types = ['bar', 'line', 'scatter', 'pie', 'area', 'box']
+    result['possible_viz'] = list(set(result['possible_viz'] + all_chart_types))
 
     return result
 
@@ -153,7 +158,7 @@ def enhance_visualization(viz_info: Dict[str, Any], df: pd.DataFrame) -> Dict[st
         else:
             viz_info['formatting']['number_format'][col] = ','  # Regular comma formatting
     
-    # Detect if color scheme should be different (e.g., for sequential data)
+    # Detect if color scheme should be different
     if any(col for col in df.columns if 'percentage' in col.lower() or 'ratio' in col.lower()):
         viz_info['formatting']['color_scheme'] = 'sequential'
     

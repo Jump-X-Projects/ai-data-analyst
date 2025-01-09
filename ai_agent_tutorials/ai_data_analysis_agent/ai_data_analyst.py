@@ -27,6 +27,8 @@ if 'current_viz_suggestion' not in st.session_state:
     st.session_state.current_viz_suggestion = None
 if 'current_sql' not in st.session_state:
     st.session_state.current_sql = None
+if 'visualization_shown' not in st.session_state:
+    st.session_state.visualization_shown = False
 
 def init_openai_client(api_key: str):
     """Initialize OpenAI client with API key"""
@@ -165,6 +167,30 @@ def execute_query(sql_query: str, file_path: str) -> pd.DataFrame:
     except Exception as e:
         raise Exception(f"Error executing query: {str(e)}")
 
+def display_visualization():
+    """Display visualization for current query results"""
+    if st.session_state.current_query_result is not None:
+        try:
+            # Analyze data for visualization
+            viz_info = analyze_data_for_visualization(st.session_state.current_query_result)
+            
+            # If there's a visualization suggestion, incorporate it
+            if st.session_state.current_viz_suggestion and \
+               st.session_state.current_viz_suggestion.get('type') in viz_info['possible_viz']:
+                viz_info['recommended_viz'] = st.session_state.current_viz_suggestion['type']
+                viz_info['reason'] = st.session_state.current_viz_suggestion['reason']
+            
+            # Show visualization section
+            st.write("---")
+            st.write("📊 Data Visualization")
+            
+            # Create visualization
+            create_visualization(st.session_state.current_query_result, viz_info)
+            st.session_state.visualization_shown = True
+
+        except Exception as e:
+            st.error(f"Error creating visualization: {str(e)}")
+
 def process_query_and_visualize(query_result, viz_suggestion=None):
     """Process query results and show visualization"""
     if query_result is not None:
@@ -176,27 +202,19 @@ def process_query_and_visualize(query_result, viz_suggestion=None):
             # Store the results in session state
             st.session_state.current_query_result = query_result
             st.session_state.current_viz_suggestion = viz_suggestion
+            st.session_state.visualization_shown = False
             
-            # Analyze data for visualization
-            viz_info = analyze_data_for_visualization(query_result)
-            
-            # If there's a visualization suggestion from GPT, incorporate it
-            if viz_suggestion and viz_suggestion.get('type') in viz_info['possible_viz']:
-                viz_info['recommended_viz'] = viz_suggestion['type']
-                viz_info['reason'] = viz_suggestion['reason']
-            
-            # Show visualization section
-            st.write("---")
-            st.write("📊 Data Visualization")
-            
-            # Create visualization
-            create_visualization(query_result, viz_info)
+            # Display the visualization
+            display_visualization()
 
         except Exception as e:
-            st.error(f"Error creating visualization: {str(e)}")
+            st.error(f"Error processing results: {str(e)}")
 
 def main():
     st.title("📊 Data Analyst Agent")
+
+    # Reset visualization state on page load
+    st.session_state.visualization_shown = False
 
     # Sidebar for API keys
     with st.sidebar:
@@ -293,18 +311,15 @@ def main():
                         st.error("Please check your input and try again.")
 
             # Display stored results if they exist
-            if st.session_state.current_analysis:
+            if st.session_state.current_analysis and not st.session_state.visualization_shown:
                 st.write("### Analysis")
                 st.write(st.session_state.current_analysis)
                 
                 st.write("### SQL Query")
                 st.code(st.session_state.current_sql, language='sql')
                 
-                if st.session_state.current_query_result is not None:
-                    process_query_and_visualize(
-                        st.session_state.current_query_result,
-                        st.session_state.current_viz_suggestion
-                    )
+                # Display visualization only if not already shown
+                display_visualization()
 
 if __name__ == "__main__":
     main()
