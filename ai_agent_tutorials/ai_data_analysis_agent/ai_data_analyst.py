@@ -18,6 +18,16 @@ from components.visualization.data_viz import (
 )
 from components.visualization.viz_component import create_visualization
 
+# Initialize session state
+if 'current_query_result' not in st.session_state:
+    st.session_state.current_query_result = None
+if 'current_analysis' not in st.session_state:
+    st.session_state.current_analysis = None
+if 'current_viz_suggestion' not in st.session_state:
+    st.session_state.current_viz_suggestion = None
+if 'current_sql' not in st.session_state:
+    st.session_state.current_sql = None
+
 def init_openai_client(api_key: str):
     """Initialize OpenAI client with API key"""
     os.environ["OPENAI_API_KEY"] = api_key
@@ -136,32 +146,6 @@ def preprocess_and_save(file):
         st.error(f"Error processing file: {e}")
         return None, None, None
 
-def process_query_and_visualize(query_result, viz_suggestion=None):
-    """Process query results and show visualization"""
-    if query_result is not None:
-        try:
-            # Show regular query results
-            st.write("Query Results:")
-            st.dataframe(query_result)
-            
-            # Analyze data for visualization
-            viz_info = analyze_data_for_visualization(query_result)
-            
-            # If there's a visualization suggestion from GPT, incorporate it
-            if viz_suggestion and viz_suggestion.get('type') in viz_info['possible_viz']:
-                viz_info['recommended_viz'] = viz_suggestion['type']
-                viz_info['reason'] = viz_suggestion['reason']
-            
-            # Show visualization section
-            st.write("---")
-            st.write("📊 Data Visualization")
-            
-            # Create visualization
-            create_visualization(query_result, viz_info)
-
-        except Exception as e:
-            st.error(f"Error creating visualization: {str(e)}")
-
 def execute_query(sql_query: str, file_path: str) -> pd.DataFrame:
     """Execute SQL query using DuckDB"""
     try:
@@ -180,6 +164,36 @@ def execute_query(sql_query: str, file_path: str) -> pd.DataFrame:
         return result
     except Exception as e:
         raise Exception(f"Error executing query: {str(e)}")
+
+def process_query_and_visualize(query_result, viz_suggestion=None):
+    """Process query results and show visualization"""
+    if query_result is not None:
+        try:
+            # Show regular query results
+            st.write("Query Results:")
+            st.dataframe(query_result)
+            
+            # Store the results in session state
+            st.session_state.current_query_result = query_result
+            st.session_state.current_viz_suggestion = viz_suggestion
+            
+            # Analyze data for visualization
+            viz_info = analyze_data_for_visualization(query_result)
+            
+            # If there's a visualization suggestion from GPT, incorporate it
+            if viz_suggestion and viz_suggestion.get('type') in viz_info['possible_viz']:
+                viz_info['recommended_viz'] = viz_suggestion['type']
+                viz_info['reason'] = viz_suggestion['reason']
+            
+            # Show visualization section
+            st.write("---")
+            st.write("📊 Data Visualization")
+            
+            # Create visualization
+            create_visualization(query_result, viz_info)
+
+        except Exception as e:
+            st.error(f"Error creating visualization: {str(e)}")
 
 def main():
     st.title("📊 Data Analyst Agent")
@@ -250,13 +264,9 @@ def main():
                                 # Parse and validate response
                                 parsed_response = parse_gpt_response(response_content)
                                 
-                                # Display the text response
-                                st.write("### Analysis")
-                                st.write(parsed_response['answer']['text'])
-                                
-                                # Display the SQL query in a code block
-                                st.write("### SQL Query")
-                                st.code(parsed_response['answer']['sql'], language='sql')
+                                # Store analysis in session state
+                                st.session_state.current_analysis = parsed_response['answer']['text']
+                                st.session_state.current_sql = parsed_response['answer']['sql']
                                 
                                 try:
                                     # Execute query using DuckDB directly
@@ -281,6 +291,20 @@ def main():
                     except Exception as e:
                         st.error(f"Error processing query: {str(e)}")
                         st.error("Please check your input and try again.")
+
+            # Display stored results if they exist
+            if st.session_state.current_analysis:
+                st.write("### Analysis")
+                st.write(st.session_state.current_analysis)
+                
+                st.write("### SQL Query")
+                st.code(st.session_state.current_sql, language='sql')
+                
+                if st.session_state.current_query_result is not None:
+                    process_query_and_visualize(
+                        st.session_state.current_query_result,
+                        st.session_state.current_viz_suggestion
+                    )
 
 if __name__ == "__main__":
     main()
