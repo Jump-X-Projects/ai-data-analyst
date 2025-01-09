@@ -27,9 +27,16 @@ class VizComponent:
         self.df = df.copy()
         self.viz_info = viz_info
         self.color_schemes = {
-            'default': px.colors.qualitative.Set1,
+            'default': [
+                '#2E86C1',  # Dark Blue
+                '#28B463',  # Dark Green
+                '#D35400',  # Dark Orange
+                '#884EA0',  # Dark Purple
+                '#CB4335',  # Dark Red
+                '#17A589'   # Dark Teal
+            ],
             'sequential': px.colors.sequential.Blues,
-            'categorical': px.colors.qualitative.Plotly,
+            'categorical': px.colors.qualitative.Bold,
             'diverging': px.colors.diverging.RdBu
         }
         
@@ -107,23 +114,88 @@ class VizComponent:
         return fig
 
     def create_pie_chart(self, x_axis: str, y_axis: str, chart_key: str) -> go.Figure:
-        """Create an interactive pie chart"""
+        """Create an enhanced interactive pie chart"""
+        # Prepare data
         pie_data = self.df.groupby(x_axis)[y_axis].sum().reset_index()
+        total_value = pie_data[y_axis].sum()
         
-        fig = px.pie(
-            pie_data,
-            values=y_axis,
-            names=x_axis,
-            title=f"Distribution of {y_axis} by {x_axis}",
-            color_discrete_sequence=self.color_schemes['default']
-        )
+        # Calculate percentages for labels
+        pie_data['percentage'] = pie_data[y_axis] / total_value * 100
         
-        fig.update_traces(
+        # Create figure using graph_objects for more customization
+        fig = go.Figure()
+        
+        # Add pie chart trace
+        fig.add_trace(go.Pie(
+            labels=pie_data[x_axis],
+            values=pie_data[y_axis],
+            hole=0.3,  # Creates a donut chart effect
             textposition='inside',
-            textinfo='percent+label'
-        )
+            textinfo='label+percent',
+            hovertemplate="<b>%{label}</b><br>" +
+                         f"{y_axis}: %{{value:,.2f}}<br>" +
+                         "Percentage: %{percent}<br>" +
+                         "<extra></extra>",  # Removes trace name from hover
+            textfont=dict(
+                size=16,  # Increased font size
+                color='white',
+                family="Arial Black, sans-serif",  # Changed to bolder font
+            ),
+            marker=dict(
+                colors=self.color_schemes['default'],
+                line=dict(color='#000000', width=3)  # Darker borders
+            ),
+            pull=[0.05] * len(pie_data),  # Slight pull-out effect
+            rotation=90,  # Start from top
+            direction='clockwise',
+            sort=False,  # Maintain segment order
+            insidetextorientation='horizontal'  # Keep text horizontal
+        ))
         
-        fig.update_layout(height=500, template='plotly_dark')
+        # Update layout
+        fig.update_layout(
+            title=dict(
+                text=f"Distribution of {y_axis} by {x_axis}<br>Total: {self.format_number(total_value)}",
+                font=dict(
+                    size=24,  # Larger title
+                    family="Arial Black, sans-serif",
+                    color='white'
+                ),
+                y=0.95
+            ),
+            height=600,
+            template='plotly_dark',
+            showlegend=True,
+            legend=dict(
+                orientation="v",
+                yanchor="middle",
+                y=0.5,
+                xanchor="right",
+                x=1.1,
+                font=dict(
+                    size=16,
+                    family="Arial, sans-serif",
+                    color='white'
+                ),
+                bgcolor='rgba(0,0,0,0.5)'  # Semi-transparent background
+            ),
+            margin=dict(t=100, l=20, r=120, b=20),
+            annotations=[
+                dict(
+                    text=f'Total<br>{self.format_number(total_value)}',
+                    x=0.5,
+                    y=0.5,
+                    font=dict(
+                        size=20,
+                        family="Arial Black, sans-serif",
+                        color='white'
+                    ),
+                    showarrow=False
+                )
+            ],
+            paper_bgcolor='rgba(0,0,0,0)',  # Transparent background
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
         
         return fig
 
