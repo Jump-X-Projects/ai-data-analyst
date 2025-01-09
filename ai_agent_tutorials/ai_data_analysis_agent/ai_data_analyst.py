@@ -1,57 +1,105 @@
 import json
 import tempfile
 import csv
+import os
+import re
 import streamlit as st
 import pandas as pd
+import duckdb
 from phi.model.openai import OpenAIChat
-from phi.agent.duckdb import DuckDbAgent
+from phi.assistant.duckdb import DuckDbAssistant as DuckDbAgent
 from phi.tools.pandas import PandasTools
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-from langchain_text_splitters import MarkdownTextSplitter
-import re
 
-# Function to load and process documentation
-def load_and_process_docs():
-    # Load the documentation
-    with open('data/duckdb_docs.json', 'r') as f:
-        docs_data = json.load(f)
-    
-    # Extract markdown content
-    docs_content = []
-    for doc in docs_data:
-        if 'markdown' in doc:
-            docs_content.append(doc['markdown'])
-    
-    # Combine all docs
-    combined_docs = "\n\n".join(docs_content)
-    
-    # Split into chunks
-    text_splitter = MarkdownTextSplitter(chunk_size=500, chunk_overlap=50)
-    chunks = text_splitter.split_text(combined_docs)
-    
-    return chunks
+# Import visualization components
+from components.visualization.data_viz import (
+    analyze_data_for_visualization,
+    prepare_data_for_visualization,
+    format_data_for_visualization
+)
+from components.visualization.viz_component import create_visualization
 
-def create_similarity_index(chunks):
-    # Load the model
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    
-    # Create embeddings
-    embeddings = model.encode(chunks)
-    
-    return model, embeddings, chunks
+def init_openai_client(api_key: str):
+    """Initialize OpenAI client with API key"""
+    os.environ["OPENAI_API_KEY"] = api_key
+    return OpenAIChat(model="gpt-4", api_key=api_key)
 
-def get_relevant_docs(query, model, stored_embeddings, chunks, k=3):
-    # Get query embedding and find similar chunks
-    query_embedding = model.encode([query])
-    similarities = cosine_similarity(query_embedding, stored_embeddings)[0]
-    top_k_indices = similarities.argsort()[-k:][::-1]
-    
-    # Return concatenated relevant chunks
-    return "\n\n".join([chunks[i] for i in top_k_indices])
+def parse_gpt_response(response_content: str) -> dict:
+    """
+    Sanitize and parse GPT response, with fallback for malformed responses
+    """
+    try:
+        # First try to parse as is
+        parsed = json.loads(response_content)
+        
+        # Validate required fields
+        if not isinstance(parsed, dict):
+            raise ValueError("Response must be a dictionary")
+        
+        if 'answer' not in parsed:
+            raise ValueError("Response missing 'answer' field")
+            
+        if not isinstance(parsed['answer'], dict):
+            raise ValueError("'answer' must be a dictionary")
+            
+        if 'text' not in parsed['answer'] or 'sql' not in parsed['answer']:
+            raise ValueError("Answer must contain 'text' and 'sql' fields")
+        
+        # Validate visualization suggestion if present
+        if 'visualization_suggestion' in parsed:
+            viz = parsed['visualization_suggestion']
+            if not isinstance(viz, dict):
+                raise ValueError("visualization_suggestion must be a dictionary")
+            if 'type' not in viz or 'reason' not in viz:
+                raise ValueError("visualization_suggestion must contain 'type' and 'reason'")
+            if viz['type'] not in ['bar', 'line', 'scatter', 'pie']:
+                viz['type'] = 'bar'  # Default to bar if invalid type
+        
+        return parsed
+        
+    except json.JSONDecodeError:
+        # Try to extract SQL query and text from non-JSON response
+        sql_match = re.search(r'```sql\s*(.*?)\s*```', response_content, re.DOTALL)
+        sql_query = sql_match.group(1) if sql_match else response_content
+        
+        # Remove SQL block from text if found
+        text_content = response_content
+        if sql_match:
+            text_content = response_content.replace(sql_match.group(0), '').strip()
+        
+        return {
+            'answer': {
+                'text': text_content,
+                'sql': sql_query
+            }
+        }
+    except ValueError as e:
+        # If validation fails, create a minimal valid response
+        st.warning(f"Warning: {str(e)}. Using default response format.")
+        return {
+            'answer': {
+                'text': response_content,
+                'sql': response_content
+            }
+        }
 
-# Function to preprocess and save the uploaded file
+def get_system_prompt():
+    """Generate system prompt"""
+    return """You are an expert data analyst specializing in DuckDB SQL syntax.
+    Generate a SQL query that strictly follows DuckDB syntax to solve the user's query.
+    Return your response in this format:
+    {
+        "answer": {
+            "text": "Your explanation here",
+            "sql": "Your SQL query here"
+        },
+        "visualization_suggestion": {
+            "type": "bar|line|scatter|pie",
+            "reason": "Brief explanation of why this visualization would be helpful"
+        }
+    }"""
+
 def preprocess_and_save(file):
+    """Preprocess and save uploaded file"""
     try:
         # Read the uploaded file into a DataFrame
         if file.name.endswith('.csv'):
@@ -83,117 +131,156 @@ def preprocess_and_save(file):
             # Save the DataFrame to the temporary CSV file with quotes around string fields
             df.to_csv(temp_path, index=False, quoting=csv.QUOTE_ALL)
 
-        return temp_path, df.columns.tolist(), df  # Return the DataFrame as well
+        return temp_path, df.columns.tolist(), df
     except Exception as e:
         st.error(f"Error processing file: {e}")
         return None, None, None
 
-# Streamlit app
-st.title("📊 Data Analyst Agent")
+def process_query_and_visualize(query_result, viz_suggestion=None):
+    """Process query results and show visualization"""
+    if query_result is not None:
+        try:
+            # Show regular query results
+            st.write("Query Results:")
+            st.dataframe(query_result)
+            
+            # Analyze data for visualization
+            viz_info = analyze_data_for_visualization(query_result)
+            
+            # If there's a visualization suggestion from GPT, incorporate it
+            if viz_suggestion and viz_suggestion.get('type') in viz_info['possible_viz']:
+                viz_info['recommended_viz'] = viz_suggestion['type']
+                viz_info['reason'] = viz_suggestion['reason']
+            
+            # Show visualization section
+            st.write("---")
+            st.write("📊 Data Visualization")
+            
+            # Create visualization
+            create_visualization(query_result, viz_info)
 
-# Sidebar for API keys
-with st.sidebar:
-    st.header("API Keys")
-    openai_key = st.text_input("Enter your OpenAI API key:", type="password")
-    if openai_key:
-        st.session_state.openai_key = openai_key
-        st.success("API key saved!")
-    else:
-        st.warning("Please enter your OpenAI API key to proceed.")
+        except Exception as e:
+            st.error(f"Error creating visualization: {str(e)}")
 
-# File upload widget
-uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
+def execute_query(sql_query: str, file_path: str) -> pd.DataFrame:
+    """Execute SQL query using DuckDB"""
+    try:
+        # Create a DuckDB connection
+        conn = duckdb.connect()
+        
+        # Register the CSV file
+        conn.execute(f"CREATE TABLE uploaded_data AS SELECT * FROM read_csv_auto('{file_path}')")
+        
+        # Execute the query and fetch results as DataFrame
+        result = conn.execute(sql_query).fetchdf()
+        
+        # Close the connection
+        conn.close()
+        
+        return result
+    except Exception as e:
+        raise Exception(f"Error executing query: {str(e)}")
 
-if uploaded_file is not None and "openai_key" in st.session_state:
-    # Initialize similarity search if not in session state
-    if "similarity_model" not in st.session_state:
-        with st.spinner('Setting up documentation search...'):
-            chunks = load_and_process_docs()
-            model, embeddings, doc_chunks = create_similarity_index(chunks)
-            st.session_state.similarity_model = model
-            st.session_state.stored_embeddings = embeddings
-            st.session_state.chunks = doc_chunks
-    
-    # Preprocess and save the uploaded file
-    temp_path, columns, df = preprocess_and_save(uploaded_file)
+def main():
+    st.title("📊 Data Analyst Agent")
 
-    if temp_path and columns and df is not None:
-        # Display the uploaded data as a table
-        st.write("Uploaded Data:")
-        st.dataframe(df)  # Use st.dataframe for an interactive table
+    # Sidebar for API keys
+    with st.sidebar:
+        st.header("API Keys")
+        openai_key = st.text_input("Enter your OpenAI API key:", type="password")
+        if openai_key:
+            st.session_state.openai_key = openai_key
+            # Initialize OpenAI client
+            st.session_state.openai_client = init_openai_client(openai_key)
+            st.success("API key saved!")
+        else:
+            st.warning("Please enter your OpenAI API key to proceed.")
 
-        # Display the columns of the uploaded data
-        st.write("Uploaded columns:", columns)
+    # File upload widget
+    uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
 
-        # Configure the semantic model with the temporary file path
-        semantic_model = {
-            "tables": [
-                {
+    if uploaded_file is not None and "openai_key" in st.session_state:
+        # Preprocess and save the uploaded file
+        temp_path, columns, df = preprocess_and_save(uploaded_file)
+
+        if temp_path and columns and df is not None:
+            # Display the uploaded data
+            st.write("Uploaded Data:")
+            st.dataframe(df)
+            st.write("Available columns:", columns)
+
+            # Configure the semantic model
+            semantic_model = {
+                "tables": [{
                     "name": "uploaded_data",
                     "description": "Contains the uploaded dataset.",
                     "path": temp_path,
                     "format": "csv"
-                }
-            ]
-        }
+                }]
+            }
 
-        # Main query input widget
-        user_query = st.text_area("Ask a query about the data:")
+            # Main query input
+            user_query = st.text_area("Ask a query about the data:")
 
-        # Add info message about terminal output
-        st.info("💡 Check your terminal for a clearer output of the agent's response")
+            if st.button("Submit Query"):
+                if user_query.strip() == "":
+                    st.warning("Please enter a query.")
+                else:
+                    try:
+                        with st.spinner('Processing your query...'):
+                            # Initialize DuckDB agent with the OpenAI client
+                            duckdb_agent = DuckDbAgent(
+                                model=st.session_state.openai_client,
+                                semantic_model=json.dumps(semantic_model),
+                                tools=[PandasTools()],
+                                markdown=True,
+                                system_prompt=get_system_prompt()
+                            )
 
-        if st.button("Submit Query"):
-            if user_query.strip() == "":
-                st.warning("Please enter a query.")
-            else:
-                try:
-                    # Show loading spinner while processing
-                    with st.spinner('Processing your query...'):
-                        # Get relevant documentation using similarity search
-                        relevant_docs = get_relevant_docs(
-                            user_query,
-                            st.session_state.similarity_model,
-                            st.session_state.stored_embeddings,
-                            st.session_state.chunks
-                        )
-                        
-                        # Create dynamic system prompt with relevant documentation
-                        system_prompt = f"""You are an expert data analyst specializing in DuckDB SQL syntax.
-                        Here is the relevant DuckDB documentation for this query:
-                        {relevant_docs}
-                        
-                        Generate a SQL query that strictly follows DuckDB syntax to solve the user's query.
-                        Return only the SQL query, enclosed in ```sql ``` and give the final answer."""
-                        
-                        # Initialize the DuckDbAgent with documentation-aware prompt
-                        duckdb_agent = DuckDbAgent(
-                            model=OpenAIChat(model="gpt-4", api_key=st.session_state.openai_key),
-                            semantic_model=json.dumps(semantic_model),
-                            tools=[PandasTools()],
-                            markdown=True,
-                            add_history_to_messages=False,  # Disable chat history
-                            followups=False,  # Disable follow-up queries
-                            read_tool_call_history=False,  # Disable reading tool call history
-                            system_prompt=system_prompt,
-                        )
+                            try:
+                                # Get response from DuckDB agent
+                                response = duckdb_agent.run(user_query)
+                                
+                                # Convert generator to string if needed
+                                if hasattr(response, '__iter__') and not isinstance(response, (str, dict)):
+                                    response_content = ''.join(list(response))
+                                else:
+                                    response_content = str(response)
+                                
+                                # Parse and validate response
+                                parsed_response = parse_gpt_response(response_content)
+                                
+                                # Display the text response
+                                st.write("### Analysis")
+                                st.write(parsed_response['answer']['text'])
+                                
+                                # Display the SQL query in a code block
+                                st.write("### SQL Query")
+                                st.code(parsed_response['answer']['sql'], language='sql')
+                                
+                                try:
+                                    # Execute query using DuckDB directly
+                                    query_result = execute_query(parsed_response['answer']['sql'], temp_path)
+                                    
+                                    if query_result is not None and not query_result.empty:
+                                        process_query_and_visualize(
+                                            query_result,
+                                            parsed_response.get('visualization_suggestion')
+                                        )
+                                    else:
+                                        st.warning("Query returned no results.")
+                                        
+                                except Exception as e:
+                                    st.error(f"Error executing SQL query: {str(e)}")
+                                    st.error("Please check the SQL query syntax.")
+                                    
+                            except Exception as e:
+                                st.error(f"Error processing GPT response: {str(e)}")
+                                st.error("Please try rephrasing your query.")
+                                
+                    except Exception as e:
+                        st.error(f"Error processing query: {str(e)}")
+                        st.error("Please check your input and try again.")
 
-                        # Get the response from DuckDbAgent
-                        response1 = duckdb_agent.run(user_query)
-
-                        # Extract the content from the RunResponse object
-                        if hasattr(response1, 'content'):
-                            response_content = response1.content
-                        else:
-                            response_content = str(response1)
-                        response = duckdb_agent.print_response(
-                            user_query,
-                            stream=True,
-                        )
-
-                        # Display the response in Streamlit
-                        st.markdown(response_content)
-
-                except Exception as e:
-                    st.error(f"Error generating response from the DuckDbAgent: {e}")
-                    st.error("Please try rephrasing your query or check if the data format is correct.")
+if __name__ == "__main__":
+    main()
