@@ -26,6 +26,7 @@ class VizComponent:
     def __init__(self, df: pd.DataFrame, viz_info: Dict[str, Any]):
         self.df = df.copy()
         self.viz_info = viz_info
+        self.current_figure = None  # Store current figure
         self.color_schemes = {
             'default': [
                 '#2E86C1',  # Dark Blue
@@ -297,6 +298,7 @@ class VizComponent:
 
                 if chart_type in chart_creators:
                     fig = chart_creators[chart_type](x_axis, y_axis, chart_key)
+                    self.current_figure = fig  # Store the figure
                     st.plotly_chart(fig, use_container_width=True, key=chart_key)
                 else:
                     st.error(f"Unsupported chart type: {chart_type}")
@@ -325,7 +327,8 @@ class VizComponent:
             st.error(f"Error in visualization component: {str(e)}")
             st.error("Please check your data and visualization settings.")
 
-def create_visualization(df: pd.DataFrame, viz_info: Dict[str, Any]) -> None:
+def create_visualization(df: pd.DataFrame, viz_info: Dict[str, Any]) -> go.Figure:
     """Helper function to create and display visualization"""
     viz = VizComponent(df, viz_info)
     viz.render()
+    return viz.current_figure  # Return the current figure for report generation

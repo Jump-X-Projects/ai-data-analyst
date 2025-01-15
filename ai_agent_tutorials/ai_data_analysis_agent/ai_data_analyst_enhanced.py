@@ -3,13 +3,16 @@ import tempfile
 import csv
 import os
 import re
+import base64
 import streamlit as st
 import pandas as pd
 import duckdb
 import ijson
+import time
 from phi.model.openai import OpenAIChat
 from phi.assistant.duckdb import DuckDbAssistant as DuckDbAgent
 from phi.tools.pandas import PandasTools
+from reports.report_generator import ReportGenerator
 
 # Import visualization components
 from components.visualization.data_viz import (
@@ -30,6 +33,8 @@ if 'current_sql' not in st.session_state:
     st.session_state.current_sql = None
 if 'visualization_shown' not in st.session_state:
     st.session_state.visualization_shown = False
+if 'current_figure' not in st.session_state:
+    st.session_state.current_figure = None
 
 def analyze_query_intent(query: str) -> dict:
     """Analyze natural language query to determine required SQL components"""
@@ -319,7 +324,8 @@ def execute_query(sql_query: str, file_path: str) -> pd.DataFrame:
         # Create a DuckDB connection
         conn = duckdb.connect()
         
-        # Register the CSV file
+        # Drop table if exists and create new one
+        conn.execute("DROP TABLE IF EXISTS uploaded_data")
         conn.execute(f"CREATE TABLE uploaded_data AS SELECT * FROM read_csv_auto('{file_path}')")
         
         # Execute the query and fetch results as DataFrame
@@ -349,14 +355,15 @@ def display_visualization():
             st.write("---")
             st.write("📊 Data Visualization")
             
-            # Create visualization
-            create_visualization(st.session_state.current_query_result, viz_info)
+            # Create visualization and store the figure
+            fig = create_visualization(st.session_state.current_query_result, viz_info)
+            st.session_state.current_figure = fig
             st.session_state.visualization_shown = True
 
         except Exception as e:
             st.error(f"Error creating visualization: {str(e)}")
 
-def process_query_and_visualize(query_result, viz_suggestion=None):
+def process_query_and_visualize(query_result, viz_suggestion=None, start_time=None):
     """Process query results and show visualization"""
     if query_result is not None:
         try:
@@ -368,6 +375,11 @@ def process_query_and_visualize(query_result, viz_suggestion=None):
             st.session_state.current_query_result = query_result
             st.session_state.current_viz_suggestion = viz_suggestion
             st.session_state.visualization_shown = False
+            
+            # Calculate execution time
+            if start_time:
+                execution_time = f"{time.time() - start_time:.2f} seconds"
+                st.session_state.execution_time = execution_time
             
             # Display the visualization
             display_visualization()
@@ -460,24 +472,26 @@ def main():
                                 st.session_state.current_analysis = parsed_response['answer']['text']
                                 st.session_state.current_sql = parsed_response['answer']['sql']
                                 
-                                try:
-                                    # Execute query using DuckDB directly
-                                    query_result = execute_query(parsed_response['answer']['sql'], temp_path)
-                                    
-                                    if query_result is not None and not query_result.empty:
-                                        process_query_and_visualize(
-                                            query_result,
-                                            parsed_response.get('visualization_suggestion')
-                                        )
-                                    else:
-                                        st.warning("Query returned no results.")
-                                        
-                                except Exception as e:
-                                    st.error(f"Error executing SQL query: {str(e)}")
-                                    st.error("Please check the SQL query syntax.")
+                                # Record start time
+                                start_time = time.time()
+                                
+                                # Store current query
+                                st.session_state.current_query = user_query
+                                
+                                # Execute query using DuckDB directly
+                                query_result = execute_query(parsed_response['answer']['sql'], temp_path)
+                                
+                                if query_result is not None and not query_result.empty:
+                                    process_query_and_visualize(
+                                        query_result,
+                                        parsed_response.get('visualization_suggestion'),
+                                        start_time
+                                    )
+                                else:
+                                    st.warning("Query returned no results.")
                                     
                             except Exception as e:
-                                st.error(f"Error processing GPT response: {str(e)}")
+                                st.error(f"Error processing query: {str(e)}")
                                 st.error("Please try rephrasing your query.")
                                 
                     except Exception as e:
@@ -494,6 +508,45 @@ def main():
                 
                 # Display visualization only if not already shown
                 display_visualization()
+            
+            # Add Export Report section (outside visualization controls)
+            if st.session_state.current_figure is not None and st.session_state.current_query_result is not None:
+                st.write("---")
+                st.write("### Export Options")
+                
+                try:
+                    report_generator = ReportGenerator()
+                    
+                    # Prepare report data
+                    report_data = {
+                        'query_text': st.session_state.get('current_query', ''),
+                        'analysis_text': st.session_state.get('current_analysis', ''),
+                        'visualization': st.session_state.current_figure,  # Plotly figure
+                        'viz_suggestion': st.session_state.current_viz_suggestion,
+                        'sql_query': st.session_state.get('current_sql', ''),
+                        'execution_time': st.session_state.get('execution_time', 'N/A'),
+                        'data_columns': st.session_state.current_query_result.columns.tolist(),
+                        'data_rows': st.session_state.current_query_result.values.tolist(),
+                        'row_count': len(st.session_state.current_query_result)
+                    }
+                    
+                    # Generate report
+                    pdf_b64 = report_generator.get_report_as_base64(report_data)
+                    
+                    if pdf_b64:
+                        # Use Streamlit's download_button
+                        st.download_button(
+                            label="📥 Download Report",
+                            data=base64.b64decode(pdf_b64),
+                            file_name="analysis_report.pdf",
+                            mime="application/pdf",
+                            key="download_report"
+                        )
+                    else:
+                        st.error("Failed to generate report")
+                        
+                except Exception as e:
+                    st.error(f"Error generating report: {str(e)}")
 
 if __name__ == "__main__":
     main()

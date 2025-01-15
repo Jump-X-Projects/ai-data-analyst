@@ -1,0 +1,166 @@
+/* Jump Brand Colors */
+:root {
+    --jump-black: #20204A;
+    --dark-purple: #32327A;
+    --light-purple: #D7BFED;
+    --white: #FFFFFF;
+    --yellow: #FFC958;
+    --peach: #FE7B94;
+    --pink: #EA7BCE;
+    --blue: #8EB7F8;
+    --green: #B4EC9D;
+}
+
+/* Global Styles */
+@font-face {
+    font-family: 'Gotham Bold';
+    src: url('../fonts/Gotham-Bold.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'Gotham Book';
+    src: url('../fonts/Gotham-Book.woff2') format('woff2');
+}
+
+body {
+    background-color: var(--dark-purple);
+    color: var(--white);
+    font-family: 'Gotham Book', sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+/* Cover Page */
+.cover {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+}
+
+.logo {
+    width: 200px;
+    margin-bottom: 2rem;
+}
+
+.cover h1 {
+    font-family: 'Gotham Bold', sans-serif;
+    color: var(--white);
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.cover .timestamp {
+    color: var(--light-purple);
+    font-size: 1.1rem;
+}
+
+/* Section Styles */
+.section {
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.section h2 {
+    font-family: 'Gotham Bold', sans-serif;
+    color: var(--yellow);
+    font-size: 1.8rem;
+    margin-bottom: 1.5rem;
+}
+
+.section h3 {
+    font-family: 'Gotham Bold', sans-serif;
+    color: var(--light-purple);
+    font-size: 1.4rem;
+    margin-bottom: 1rem;
+}
+
+/* Executive Summary */
+.executive-summary {
+    background-color: var(--jump-black);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 2rem 0;
+}
+
+/* Visualization Section */
+.visualization {
+    background-color: var(--jump-black);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 2rem 0;
+}
+
+.visualization img {
+    max-width: 100%;
+    height: auto;
+    margin: 1rem 0;
+}
+
+/* Data Table */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+}
+
+.data-table th {
+    background-color: var(--jump-black);
+    color: var(--yellow);
+    padding: 1rem;
+    text-align: left;
+    font-family: 'Gotham Bold', sans-serif;
+}
+
+.data-table tr:nth-child(odd) {
+    background-color: rgba(50, 50, 122, 0.6);
+}
+
+.data-table td {
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--light-purple);
+}
+
+/* SQL Query Section */
+.sql-query {
+    background-color: var(--jump-black);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 2rem 0;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--light-purple);
+    font-size: 0.9rem;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+}
+
+/* Page Numbers */
+@page {
+    @bottom-right {
+        content: counter(page);
+        font-family: 'Gotham Book', sans-serif;
+        color: var(--light-purple);
+    }
+}
+
+/* Print Specific Styles */
+@media print {
+    .page-break {
+        page-break-before: always;
+    }
+    
+    .no-break {
+        page-break-inside: avoid;
+    }
+}
