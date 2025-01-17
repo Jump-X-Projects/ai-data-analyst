@@ -1,0 +1,4 @@
+python3-cairo
+libcairo2-dev
+pkg-config
+python3-dev
